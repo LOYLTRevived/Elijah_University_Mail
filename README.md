@@ -1,9 +1,3 @@
-## 4. 📝 Create a README.md
-
-A README.md is the front page of your project. Create this file to provide setup instructions.
-
----
-
 # 📓 Automated Media Journal
 
 A full-stack Flask application for daily logging with support for images and videos, featuring automated weekly email summary generation and cloud synchronization to Google Drive.
