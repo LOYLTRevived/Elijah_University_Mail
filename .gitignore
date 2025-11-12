@@ -1,0 +1,25 @@
+# --- General Python Exclusions ---
+# Virtual environment
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.o
+*.so
+
+# --- Project-Specific Exclusions ---
+# 1. Credentials and Environment Variables (CRITICAL)
+.env
+google_credentials.json
+
+# 2. Database and Uploaded Media (Private Data)
+database.db
+uploads/
+
+# 3. Temp files
+*.tmp
+*~
+
+# 4. macOS/Windows system files
+.DS_Store
+Thumbs.db
