@@ -7,12 +7,15 @@ from email.mime.image import MIMEImage
 from email.mime.base import MIMEBase
 from email import encoders
 import mimetypes
-from PIL import Image # New: For image manipulation
-import tempfile # New: For temporary file storage
-import shutil # New: For file operations
+from PIL import Image
+import tempfile
+import shutil
 
-from app import app, db, Entry 
+# 🚨 CRITICAL UPDATE: Import the new Media model and required SQLAlchemy functions
+from app import app, db, Entry, Media 
 from flask import render_template
+# from sqlalchemy.orm import joinedload # Flask-SQLAlchemy usually accesses this via db.joinedload
+
 from config import (
     UPLOAD_FOLDER, 
     SMTP_SERVER, 
@@ -20,15 +23,15 @@ from config import (
     EMAIL_ADDRESS, 
     EMAIL_PASSWORD, 
     RECIPIENT_EMAIL,
-    MAX_INLINE_IMAGE_SIZE_BYTES, # New
-    CLOUD_STORAGE_BASE_URL # New
+    MAX_INLINE_IMAGE_SIZE_BYTES,
+    CLOUD_STORAGE_BASE_URL
 )
 
 # --- Configuration ---
 VIDEO_EXTENSIONS = ('.mp4', '.mov', '.webm') 
-COMPRESSED_TEMP_DIR = tempfile.gettempdir() # Use system temp directory
+COMPRESSED_TEMP_DIR = tempfile.gettempdir()
 
-# --- Helper Functions ---
+# --- Helper Functions (No changes required for the helpers) ---
 
 def is_video_file(filename):
     """Checks if a file is a video based on its extension."""
@@ -94,6 +97,7 @@ def send_email(subject, html_body, media_list):
             continue
 
         # --- VIDEO/LARGE FILE HANDLING ---
+        # The logic here is fine, it handles a flattened list of all media items
         if media['is_video'] or os.path.getsize(original_path) > MAX_INLINE_IMAGE_SIZE_BYTES:
             
             # Skip attachment entirely and rely on the cloud link in the HTML
@@ -147,18 +151,20 @@ def send_email(subject, html_body, media_list):
                 pass
 
 
-# --- Main Summary Generation Logic (Modified to include CLOUD_STORAGE_BASE_URL) ---
+# --- Main Summary Generation Logic (Modified to handle multiple media files) ---
 
 def generate_summary_and_send():
     """Generates the summary and calls the email sending function."""
     with app.app_context():
         start_date, end_date_incl = get_last_week_dates()
         
+        # 🚨 UPDATE: Use joinedload to fetch associated Media objects efficiently
         entries = db.session.execute(
             db.select(Entry)
             .where(Entry.date >= start_date)
             .where(Entry.date <= end_date_incl) 
             .order_by(Entry.date.desc())
+            .options(db.joinedload(Entry.media)) # Assuming the relationship is named 'media'
         ).scalars().all()
         
         if not entries:
@@ -167,31 +173,42 @@ def generate_summary_and_send():
 
         print(f"\n--- Generating Weekly Summary ({start_date} to {end_date_incl}) ---")
         
-        summary_data = []
-        media_list = []
+        summary_data = [] # List of dictionaries for the template
+        media_list = []   # Flattened list of ALL media items for email attachment
         
         for entry in entries:
-            filename = entry.image_path.split('/')[-1]
-            is_vid = is_video_file(filename)
-            full_local_media_path = os.path.join(UPLOAD_FOLDER, filename)
+            entry_media_items = [] # List of media for this specific entry (for the HTML template)
             
-            # Determine if we should use an external link (for videos and oversized images)
-            is_external_link = is_vid or (os.path.exists(full_local_media_path) and os.path.getsize(full_local_media_path) > MAX_INLINE_IMAGE_SIZE_BYTES)
+            # 🚨 UPDATE: Loop through the media items attached to the entry
+            for media_obj in entry.media:
+                filename = media_obj.media_path.split('/')[-1]
+                
+                # Use the 'is_video' property from the database
+                is_vid = media_obj.is_video 
+                full_local_media_path = os.path.join(UPLOAD_FOLDER, filename)
+                
+                # Determine if we should use an external link (for videos and oversized images)
+                is_external_link = is_vid or (os.path.exists(full_local_media_path) and os.path.getsize(full_local_media_path) > MAX_INLINE_IMAGE_SIZE_BYTES)
 
-            media_info = {
-                'is_video': is_vid,
-                'is_external_link': is_external_link, # New flag for the template
-                'local_media_path': full_local_media_path,
-                'media_filename': filename,
-                'external_url': CLOUD_STORAGE_BASE_URL + filename # Used in HTML template
-            }
-            media_list.append(media_info)
+                media_info = {
+                    'is_video': is_vid,
+                    'is_external_link': is_external_link, # New flag for the template
+                    'local_media_path': full_local_media_path,
+                    'media_filename': filename,
+                    'external_url': CLOUD_STORAGE_BASE_URL + filename # Used in HTML template
+                }
+                
+                # Add to the flattened list for email attachment processing
+                media_list.append(media_info)
+                
+                # Add to the entry's list for the HTML template
+                entry_media_items.append(media_info)
 
             summary_data.append({
                 'date': entry.date,
                 'title': entry.title,
                 'description': entry.description,
-                **media_info 
+                'media_items': entry_media_items # 🚨 NEW: Pass the list of media items to the template
             })
             
         html_body = render_template(
@@ -203,6 +220,7 @@ def generate_summary_and_send():
 
         subject = f"Weekly Log Summary: {start_date} to {end_date_incl}"
         
+        # The send_email function now receives the flattened list of all media
         send_email(subject, html_body, media_list)
 
 

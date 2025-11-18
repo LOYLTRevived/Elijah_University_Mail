@@ -34,30 +34,40 @@
                 </div>
 
                 <div class="md:flex">
-                    <div class="flex-shrink-0 md:w-1/3 p-5">
-                        {% set filename = entry.image_path.split('/')[-1] %}
-                        {% set extension = filename.split('.')[-1] | lower %}
+                    <div class="flex-shrink-0 md:w-1/3 p-5 flex flex-wrap gap-4 items-start">
+                        {% for media_item in entry.media %}
+                            
+                            <div class="w-full">
+                                {% set media_path = media_item.media_path %}
+                                {% set filename = media_path.split('/')[-1] %}
+                                
+                                {% if media_item.is_video %}
+                                    <video controls class="w-full h-auto object-cover rounded-lg shadow-xl border border-gray-600" preload="metadata">
+                                        {# Check for .mov and add a specific type source if filename suggests it #}
+                                        {% if filename.lower().endswith('.mov') %}
+                                            <source src="{{ url_for('uploaded_file', filename=filename) }}" type="video/quicktime">
+                                        {% endif %}
+                                        
+                                        {# Add generic mp4 source (often works even for other formats) #}
+                                        <source src="{{ url_for('uploaded_file', filename=filename) }}" type="video/mp4">
+                                        
+                                        {# Check for .webm and add specific source #}
+                                        {% if filename.lower().endswith('.webm') %}
+                                            <source src="{{ url_for('uploaded_file', filename=filename) }}" type="video/webm">
+                                        {% endif %}
 
-                        {% if extension in ['mp4', 'mov', 'webm'] %}
-                            <video controls class="w-full h-auto object-cover rounded-lg shadow-xl border border-gray-600" preload="metadata">
-                                
-                                {% if extension == 'mov' %}
-                                    <source src="{{ url_for('uploaded_file', filename=filename) }}" type="video/quicktime">
+                                        <p class="text-red-400 p-2">Video playback error. Your browser does not support the file type.</p>
+                                    </video>
+                                {% else %}
+                                    {# Standard Image Display (JPG, PNG, Converted HEIC) #}
+                                    <img class="w-full h-auto object-cover rounded-lg shadow-xl border border-gray-600"
+                                         src="{{ url_for('uploaded_file', filename=filename) }}" 
+                                         alt="Daily Media for {{ entry.date }}"
+                                         loading="lazy">
                                 {% endif %}
-                                
-                                <source src="{{ url_for('uploaded_file', filename=filename) }}" type="video/mp4">
-                                
-                                {% if extension == 'webm' %}
-                                    <source src="{{ url_for('uploaded_file', filename=filename) }}" type="video/webm">
-                                {% endif %}
+                            </div>
 
-                                <p class="text-red-400 p-2">Video playback error. Your browser does not support the file type.</p>
-                            </video>
-                        {% else %}
-                            <img class="w-full h-auto object-cover rounded-lg shadow-xl border border-gray-600"
-                                 src="{{ url_for('uploaded_file', filename=filename) }}" 
-                                 alt="Daily Media for {{ entry.date }}">
-                        {% endif %}
+                        {% endfor %}
                     </div>
 
                     <div class="p-5 md:w-2/3">

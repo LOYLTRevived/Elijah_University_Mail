@@ -6,20 +6,39 @@ __pycache__/
 *.pyc
 *.o
 *.so
+*.egg-info/
+dist/
+build/
+pip-log.txt
+pip-delete-this-directory.txt
 
-# --- Project-Specific Exclusions ---
-# 1. Credentials and Environment Variables (CRITICAL)
+# --- Python Tools Exclusions ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Project-Specific Exclusions (CRITICAL) ---
+# 1. Credentials and Environment Variables
 .env
 google_credentials.json
 
 # 2. Database and Uploaded Media (Private Data)
+# CRITICAL: Exclude your SQLite database file
+**/*.db
 database.db
+# CRITICAL: Exclude all uploaded files
 uploads/
 
-# 3. Temp files
+# 3. Alembic/SQLAlchemy Metadata (Often excluded)
+# Alembic maintains migration history in the migrations/ folder, but its internal metadata is safe to ignore
+alembic_versions.json
+
+# 4. Temp files and Logs
 *.tmp
 *~
-
-# 4. macOS/Windows system files
+*.log
+!debug.log # Include this line if you want to keep a debug log
+.idea/ # IDE files (e.g., PyCharm)
+.vscode/ # VS Code settings
 .DS_Store
 Thumbs.db

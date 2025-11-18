@@ -27,22 +27,27 @@
                     <p style="color: #D1D5DB; font-size: 14px; line-height: 1.5; white-space: pre-wrap;">{{ entry.description }}</p>
                     
                     <div style="margin-top: 15px;">
-                        {% if entry.is_external_link %}
-                            <p style="color:#FCA5A5; font-weight:bold; font-size: 14px; margin: 0;">
-                                {% if entry.is_video %}▶️ Video Link:{% else %}⚠️ Large File Link:{% endif %}
-                            </p>
-                            <a href="{{ entry.external_url }}" 
-                            style="color:#60a5fa; word-break: break-all; font-size: 13px; text-decoration: underline; margin-top: 5px; display: block;">
-                                {{ entry.external_url }}
-                            </a>
-                            <p style="color:#9CA3AF; font-size: 12px; margin-top: 5px;">
-                                (The file was too large to embed/attach and must be uploaded manually to the cloud storage URL above.)
-                            </p>
-                        {% else %}
-                            <img src="cid:{{ entry.media_filename }}" 
-                                alt="Daily Entry Media" 
-                                style="max-width: 100%; height: auto; border-radius: 6px; border: 1px solid #4B5563; display: block;">
-                        {% endif %}
+                        {# 🚨 UPDATE: Loop through the list of media items attached to the entry #}
+                        {% for media in entry.media_items %}
+                        <div style="margin-bottom: 10px;">
+                            {% if media.is_external_link %}
+                                <p style="color:#FCA5A5; font-weight:bold; font-size: 14px; margin: 0;">
+                                    {% if media.is_video %}▶️ Video Link:{% else %}⚠️ Large File Link:{% endif %}
+                                </p>
+                                <a href="{{ media.external_url }}" 
+                                style="color:#60a5fa; word-break: break-all; font-size: 13px; text-decoration: underline; margin-top: 5px; display: block;">
+                                    {{ media.external_url }}
+                                </a>
+                                <p style="color:#9CA3AF; font-size: 12px; margin-top: 5px;">
+                                    (The file was too large to embed/attach and must be uploaded manually to the cloud storage URL above.)
+                                </p>
+                            {% else %}
+                                <img src="cid:{{ media.media_filename }}" 
+                                    alt="Daily Entry Media" 
+                                    style="max-width: 100%; height: auto; border-radius: 6px; border: 1px solid #4B5563; display: block;">
+                            {% endif %}
+                        </div>
+                        {% endfor %}
                     </div>
                 </div>
                 {% endfor %}

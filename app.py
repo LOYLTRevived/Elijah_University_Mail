@@ -6,9 +6,10 @@ from werkzeug.utils import secure_filename
 from PIL import Image
 from pillow_heif import register_heif_opener, HeifImagePlugin
 from werkzeug.utils import secure_filename
+from sqlalchemy.orm import relationship
 
 # --- Congiguration Imports ---
-from config import SQLALCHEMY_DATABASE_URI, UPLOAD_FOLDER
+from config import SQLALCHEMY_DATABASE_URI, UPLOAD_FOLDER, ALLOWED_EXTENSIONS
 
 # --- HEIC Opener Registration ---
 try:
@@ -26,12 +27,21 @@ app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB limit
 db = SQLAlchemy(app)
 
 # --- Database Model (The blueprint for youe wntries) ---
+class Media(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    entry_id = db.Column(db.Integer, db.ForeignKey('entry.id'), nullable=False)
+    media_path = db.Column(db.String(200), nullable=False)
+    is_video =  db.Column(db.Boolean, default=False)
+
+    def __repr__(self):
+        return f'<Media {self.media_path}>'
+
 class Entry(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.String(10), nullable=False) # Stroed as YYY-MM-DD
     title = db.Column(db.String(100), nullable=True)
     description = db.Column(db.Text, nullable=False)
-    image_path = db.Column(db.String(200), nullable=False) # Path to saved image
+    media = relationship('Media', backref='entry', lazy='joined', cascade="all, delete-orphan")
 
     def __repr__(self):
         return f'<Entry {self.date}>'
@@ -48,6 +58,61 @@ def allowed_file(filename):
     from config import ALLOWED_EXTENSIONS
     return '.' in filename and \
               filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def process_and_save_media(photo_file):
+    """
+    Handles saving one media file (image/video/heic) and returns the saved path and type.
+    """
+    if not photo_file or photo_file.filename == '':
+        return None, None, None
+    
+    original_filename = secure_filename(photo_file.filename)
+    if not allowed_file(original_filename):
+        return None, "Error: Invalid file type!", None
+    
+    ext = os.path.splitext(original_filename)[-1].lower()
+    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+
+    is_heic = ext in ('.heic', '.heif')
+    is_video = ext in ('.mp4', '.mov', '.webm')
+
+    base_name = os.path.splitext(original_filename)[0]
+
+    # Determine the final extension and name
+    if is_heic:
+        final_ext = ".jpg"
+    elif is_video:
+        final_ext = ext 
+    else: 
+        final_ext = ext 
+        
+    unique_filename = f"{timestamp}_{base_name}{final_ext}"
+    final_save_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+    db_media_path = f"uploads/{unique_filename}"
+    
+    try:
+        if is_heic:
+            # HEIC Conversion Logic
+            # NOTE: If multiple files are uploaded extremely quickly, a collision on the temp path might occur.
+            # Using the unique_filename structure for the temp path too, but for simplicity sticking to old logic
+            temp_heic_path = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_{timestamp}_{base_name}{ext}")
+            photo_file.save(temp_heic_path)
+            
+            img = Image.open(temp_heic_path)
+            img = img.convert('RGB')
+            img.save(final_save_path, format="jpeg", quality=90)
+            
+            os.remove(temp_heic_path)
+            
+        else:
+            # Video or Standard Image Saving
+            photo_file.save(final_save_path)
+        
+        # Return path and a flag indicating if it's a video
+        return db_media_path, None, is_video 
+
+    except Exception as e:
+        return None, f"File processing error: {e}", None
 
 # --- Routes ---
 
@@ -69,82 +134,56 @@ def new_entry():
         # 1. Get form data
         title = request.form.get('title', '').strip()
         description = request.form['description']
-        photo = request.files.get('photo')
+        
+        # NEW: Get the list of files from the 'photos' input (note the plural name)
+        uploaded_files = request.files.getlist('photos') 
         
         
-        # 2. Validation: Image required (already enforced by 'required' in HTML, but check again)
-        if not photo or photo.filename == '':
-            # Flash message system would be better, but for simplicity:
-            return "Error: Photo is required!", 400
+        # 2. Validation: At least one file required
+        if not uploaded_files or uploaded_files[0].filename == '':
+            return "Error: At least one photo/video is required!", 400
+
+        # 3. Create the new Entry
+        new_entry = Entry(
+            date=datetime.date.today().strftime("%Y-%m-%d"),
+            title=title,
+            description=description,
+            # No image_path field anymore
+        )
         
-        original_filename = secure_filename(photo.filename)
-        ext = os.path.splitext(original_filename)[-1].lower()
-        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        media_items = []
+        
+        # 4. Process all uploaded files
+        for photo in uploaded_files:
+            media_path, error, is_video = process_and_save_media(photo)
+            
+            if error:
+                # In a real app, you might handle this more gracefully, but for now, fail the whole entry.
+                return f"File upload failed: {error}", 400
+            
+            if media_path:
+                # Create a new Media object for each successful file
+                new_media = Media(media_path=media_path, is_video=is_video)
+                media_items.append(new_media)
 
-        is_heic = ext in ('.heic', '.heif')
-        is_video = ext in ('.mp4', '.mov', '.webm')
-        is_image = allowed_file(original_filename) and not is_video
 
-        # 3. File Handling: Check extension and save file
-        if is_image or is_heic or is_video:
-            
-            base_name = os.path.splitext(original_filename)[0]
-            
-            # Determine the final extension and name
-            if is_heic:
-                # Converted image is always JPG
-                final_ext = ".jpg"
-            elif is_video:
-                # Video keeps its original extension (e.g., .mp4)
-                final_ext = ext 
-            else: 
-                # Standard image keeps its original extension
-                final_ext = ext 
-                
-            unique_filename = f"{timestamp}_{base_name}{final_ext}"
-            final_save_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
-            db_image_path = f"uploads/{unique_filename}"
-            
-            try:
-                if is_heic:
-                    # HEIC Conversion Logic (as before)
-                    temp_heic_path = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_{timestamp}{ext}")
-                    photo.save(temp_heic_path)
-                    
-                    img = Image.open(temp_heic_path)
-                    img = img.convert('RGB')
-                    img.save(final_save_path, format="jpeg", quality=90)
-                    
-                    os.remove(temp_heic_path)
-                    
-                elif is_video:
-                    # Video Saving: Save the file directly
-                    photo.save(final_save_path)
-                    
-                else:
-                    # Standard Image Saving (JPG, PNG, GIF)
-                    photo.save(final_save_path) 
+        if not media_items:
+            # This should be caught by the file validation, but as a safeguard:
+             return "Error: No valid files were processed!", 400
+        
+        # 5. Add all media items to the new entry
+        new_entry.media = media_items
 
-            except Exception as e:
-                return f"File processing error: {e}", 500
-            
-            # 4. Save to SQLite (same as before)
-            new_entry = Entry(
-                date=datetime.date.today().strftime("%Y-%m-%d"),
-                title=title,
-                description=description,
-                image_path=db_image_path # This field now holds the path for either image or video
-            )
-            
-            try:
-                db.session.add(new_entry)
-                db.session.commit()
-                return redirect(url_for('entry_success'))
-            except Exception as e:
-                db.session.rollback()
-                return f"Database error: {e}", 500
-        else:
-            return "Error: Invalid file type! Only images and videos are allowed.", 400
+        # 6. Save to SQLite
+        try:
+            db.session.add(new_entry)
+            # Media items are automatically added/persisted due to the relationship setup
+            db.session.commit()
+            return redirect(url_for('entry_success'))
+        except Exception as e:
+            db.session.rollback()
+            return f"Database error: {e}", 500
+        
 
     return render_template('new_entry.html')
 
@@ -154,4 +193,8 @@ def entry_success():
 
 # 3. Run the application
 if __name__ == '__main__':
+    # Ensure the upload folder exists
+    if not os.path.exists(UPLOAD_FOLDER):
+        os.makedirs(UPLOAD_FOLDER)
+        
     app.run(host='0.0.0.0', port=5001, debug=True)
